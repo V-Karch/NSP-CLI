@@ -26,5 +26,13 @@ fn main() {
         }
     }
 
+    if args[0] == "--combine" {
+        if args.len() == 2 {
+            let _ = utils::combine_parts_into_file(&args[1]);
+        } else {
+            utils::display_help_message();
+        }
+    }
+
     println!("{:?}", args); // Display collected arguments for debug purposes
 }

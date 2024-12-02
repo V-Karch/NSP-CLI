@@ -63,7 +63,7 @@ pub fn split_file_into_parts(file_path: &str) -> io::Result<()> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Invalid file name"))?;
 
     // Create output directory
-    let output_dir = input_path.with_file_name(format!("{}_output_parts", file_stem));
+    let output_dir = input_path.with_file_name(format!("{}", file_stem));
     fs::create_dir_all(&output_dir)?;
 
     // Open the input file
@@ -120,4 +120,96 @@ pub fn split_file_into_parts(file_path: &str) -> io::Result<()> {
 
     println!("File successfully split into parts in: {:?}", output_dir);
     return Ok(());
+}
+
+/// Combines split files (e.g., `01`, `02`, `03`) back into the original large file.
+/// The output file is named after the input directory with the `.nsp` extension.
+pub fn combine_parts_into_file(input_dir_path: &str) -> io::Result<()> {
+    let input_dir = Path::new(input_dir_path);
+    if !input_dir.exists() || !input_dir.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Input directory does not exist or is not a directory",
+        ));
+    }
+
+    // Derive the output file name from the directory name
+    let output_file_name = format!("{}.nsp", input_dir.file_name().unwrap().to_string_lossy());
+    let output_file_path = input_dir
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(&output_file_name);
+
+    // Sort the part files (e.g., `01`, `02`, `03`)
+    let mut part_files: Vec<PathBuf> = fs::read_dir(input_dir)?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.is_file())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map_or(false, |name| name.chars().all(|c| c.is_digit(10)))
+        })
+        .collect();
+
+    part_files.sort(); // Ensure files are processed in order (e.g., `01`, `02`, `03`)
+
+    if part_files.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "No part files found in the input directory",
+        ));
+    }
+
+    // Calculate the total size of all part files
+    let total_size: u64 = part_files
+        .iter()
+        .map(|file| file.metadata().unwrap().len())
+        .sum();
+
+    // Create the output file
+    let mut output_file = File::create(&output_file_path)?;
+
+    // Set up the progress bar
+    let pb = ProgressBar::new(total_size);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )
+            .map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("Progress bar error: {}", e))
+            })?
+            .progress_chars("#>-"),
+    );
+
+    // Handling reading and writing of file parts
+    let buffer_size = 64 * 1024; // 64KB buffer for reading
+    let mut buffer = vec![0; buffer_size];
+
+    let mut processed_size = 0u64;
+
+    // Loop over the part files and combine them
+    for part_file in part_files {
+        let mut input_file = File::open(&part_file)?;
+
+        // Read the part file in chunks and write it to the output file
+        loop {
+            let bytes_read = input_file.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break; // End of this part file
+            }
+            output_file.write_all(&buffer[..bytes_read])?;
+
+            // Update the progress bar
+            processed_size += bytes_read as u64;
+            pb.set_position(processed_size);
+        }
+    }
+
+    pb.finish_with_message("Done"); // Finish the progress bar with a message
+    println!(
+        "Files successfully combined into: {}",
+        output_file_path.display()
+    );
+    Ok(())
 }
