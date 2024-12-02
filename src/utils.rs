@@ -211,5 +211,5 @@ pub fn combine_parts_into_file(input_dir_path: &str) -> io::Result<()> {
         "Files successfully combined into: {}",
         output_file_path.display()
     );
-    Ok(())
+    return Ok(());
 }
