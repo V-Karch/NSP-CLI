@@ -33,6 +33,4 @@ fn main() {
             utils::display_help_message();
         }
     }
-
-    println!("{:?}", args); // Display collected arguments for debug purposes
 }
